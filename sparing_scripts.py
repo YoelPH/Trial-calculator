@@ -146,7 +146,8 @@ def levels_to_spare(threshold, model, risks, sampled_risks, ci=False):
     - If `ci` is True, confidence intervals are used to refine the sparing 
       decision.
     """
-    
+    if threshold <= 0:
+        raise ValueError("Threshold must be larger than zero")
     state_list = model.noext.ipsi.state_list
     lnls = [lnl.name for lnl in model.noext.ipsi.lnls]
 
@@ -162,19 +163,30 @@ def levels_to_spare(threshold, model, risks, sampled_risks, ci=False):
     treated_array[:] = 1
     ipsi_idx = []
     contra_idx = []
-    ci_surpassed = False
-    while total_risk_new < threshold and looper < len(lnls) * 2 + 2:
+    spared_lnls = []
+    treated_lnls = ranked_combined.copy()
+    while looper < len(lnls) * 2 + 2:
+        # define which LNLs are treated
+        if ci and (ci_single(sampled_total_risks_new)[1] >= threshold):
+            spared_lnls = ranked_combined[:looper - 2]
+            treated_lnls = ranked_combined[looper - 2:]
+            break
+        elif total_risk_new >= threshold:
+            spared_lnls = ranked_combined[:looper - 2]
+            treated_lnls = ranked_combined[looper - 2:]
+            break
         total_risk = total_risk_new
-        sampled_total_risks = sampled_total_risks_new
+        sampled_total_risk = sampled_total_risks_new
         treated_array[ipsi_idx] = 0
         treated_array[list(np.array(contra_idx) + 6)] = 0
+        # exclude the next LNL from the target volume
         lnls_of_interest = [name for name, _ in ranked_combined[:looper]]
         ipsi_idx, contra_idx = get_lnl_indices(lnls_of_interest, lnls)
         idx_ipsi = get_state_indices(state_list, ipsi_idx)
         idx_contra = get_state_indices(state_list, contra_idx)
         not_idx_ipsi = np.setdiff1d(np.arange(state_list.shape[0]), idx_ipsi) #we get all the indices of the ipsilateral that are in the target volume
 
-        # calculate risk
+        # calculate risk of the spared LNLs
         # if no ipsi LNLs are excluded from the target volume, we simply sum the contra risks and vice versa
         if not ipsi_idx:
             total_risk_new = risks.T[idx_contra].sum()
@@ -191,14 +203,6 @@ def levels_to_spare(threshold, model, risks, sampled_risks, ci=False):
                 sampled_risks[:, idx_ipsi].sum(axis=(1, 2)) +
                 sampled_risks.transpose(0, 2, 1)[:, idx_contra][:, :, not_idx_ipsi].sum(axis=(1, 2))
             )
-        if ci and (ci_single(sampled_total_risks_new)[1] > threshold) and (total_risk_new < threshold) and (ci_surpassed == False):
-            spared_lnls = ranked_combined[:looper - 2]
-            treated_lnls = ranked_combined[looper - 2:]
-            ci_surpassed = True
-        elif ci_surpassed == False:
-            spared_lnls = ranked_combined[:looper - 1]
-            treated_lnls = ranked_combined[looper - 1:]
-        
         looper += 1
 
     treated_ipsi = [name.split()[1] for name, _ in treated_lnls if name.startswith("ipsi")]
@@ -212,7 +216,7 @@ def levels_to_spare(threshold, model, risks, sampled_risks, ci=False):
         treated_array,
         treated_ipsi,
         treated_contra,
-        sampled_total_risks,
+        sampled_total_risk,
     )
 
 
