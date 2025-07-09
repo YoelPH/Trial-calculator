@@ -1,7 +1,7 @@
 import numpy as np
 
 
-def sample_from_flattened(flattened_samples, num_samples=100, spaced=False):
+def sample_from_flattened(flattened_samples, num_samples=100, spaced=False, step_size = None):
     """
     Function to sample from a flattened set of MCMC samples.
 
@@ -15,7 +15,8 @@ def sample_from_flattened(flattened_samples, num_samples=100, spaced=False):
     """
     if spaced:
         # Select evenly spaced samples
-        step_size = flattened_samples.shape[0] // num_samples
+        if step_size is None:
+            step_size = flattened_samples.shape[0] // num_samples
         return flattened_samples[::step_size][:num_samples]
     else:
         # Select random samples without replacement
@@ -23,7 +24,7 @@ def sample_from_flattened(flattened_samples, num_samples=100, spaced=False):
         return flattened_samples[indices]
 
 
-def risk_sampled(samples, model, t_stage, given_diagnoses, midline_extension):
+def risk_sampled(samples, model, t_stage, midline_extension, given_diagnoses = None):
     """
     Compute sampled risks and their mean for a given model and parameters.
     Note: The samples should already be thinned. use `sample_from_flattened` to thin the samples.
@@ -101,7 +102,7 @@ def get_state_indices(state_list, indices):
         combined.extend(np.where(state_list[:, idx] == 1)[0])
     return np.unique(combined)
 
-def levels_to_spare(threshold, model, risks, sampled_risks, ci=False):
+def levels_to_spare(threshold, model, mean_risks, sampled_risks, ci=False):
     """
     Determine the levels of lymph nodes to spare based on a risk threshold.
     This function evaluates the risks associated with ipsilateral (ipsi) and 
@@ -113,7 +114,7 @@ def levels_to_spare(threshold, model, risks, sampled_risks, ci=False):
         The maximum allowable total risk for sparing lymph node levels.
     model : object
         A model object containing the state list and lymph node level (LNL) information.
-    risks : numpy.ndarray
+    risks_mean : numpy.ndarray
         Array of risks associated with each state in the model.
     sampled_risks : numpy.ndarray
         Array of sampled risks for uncertainty estimation, with shape 
@@ -151,7 +152,7 @@ def levels_to_spare(threshold, model, risks, sampled_risks, ci=False):
     state_list = model.noext.ipsi.state_list
     lnls = [lnl.name for lnl in model.noext.ipsi.lnls]
 
-    ipsi_risks, contra_risks = get_risks_by_side(risks, state_list, lnls)
+    ipsi_risks, contra_risks = get_risks_by_side(mean_risks, state_list, lnls)
     combined_risks = {f'ipsi {k}': v for k, v in ipsi_risks.items()}
     combined_risks.update({f'contra {k}': v for k, v in contra_risks.items()})
     ranked_combined = sorted(combined_risks.items(), key=lambda x: x[1])
@@ -189,15 +190,15 @@ def levels_to_spare(threshold, model, risks, sampled_risks, ci=False):
         # calculate risk of the spared LNLs
         # if no ipsi LNLs are excluded from the target volume, we simply sum the contra risks and vice versa
         if not ipsi_idx:
-            total_risk_new = risks.T[idx_contra].sum()
+            total_risk_new = mean_risks.T[idx_contra].sum()
             sampled_total_risks_new = sampled_risks.transpose(0, 2, 1)[:, idx_contra].sum(axis=(1, 2))
         elif not contra_idx:
-            total_risk_new = risks[idx_ipsi].sum()
+            total_risk_new = mean_risks[idx_ipsi].sum()
             sampled_total_risks_new = sampled_risks[:, idx_ipsi].sum(axis=(1, 2))
         else:
             total_risk_new = (
-                risks[idx_ipsi].sum() +
-                risks.T[idx_contra][:, not_idx_ipsi].sum()
+                mean_risks[idx_ipsi].sum() +
+                mean_risks.T[idx_contra][:, not_idx_ipsi].sum()
             )
             sampled_total_risks_new = (
                 sampled_risks[:, idx_ipsi].sum(axis=(1, 2)) +
@@ -220,7 +221,7 @@ def levels_to_spare(threshold, model, risks, sampled_risks, ci=False):
     )
 
 
-def analysis_treated_lnls_sampled(combinations, samples, model) :
+def analysis_treated_lnls_combinations(combinations, samples, model, threshold = 0.10) :
     """
     Analyzes treatment patterns and evaluates risks for given combinations and samples.
 
@@ -249,12 +250,18 @@ def analysis_treated_lnls_sampled(combinations, samples, model) :
                 and contains sampled risks for each sample.
 
     Notes:
+        - IMPORTANT: the diagnostic modality treatment_diagnose is used. Make sure to define it!
         - The function modifies the `diagnose_looper` dictionary to update diagnostic
             statuses based on the input combinations.
     """
     treatment_array = np.zeros((len(combinations),12))
     top3_spared = []
-    diagnose_looper = {'max_llh_diagnose':{
+    lnls_ranked =[]
+    try:
+        model.modalities['treatment_diagnose']
+    except KeyError:
+        raise KeyError("The model does not contain the 'treatment_diagnose' modality. Please define it before running this function.")
+    diagnose_looper = {'treatment_diagnose':{
         "ipsi": {
             "I": 0,
             "II": 0,
@@ -274,6 +281,7 @@ def analysis_treated_lnls_sampled(combinations, samples, model) :
     }}
     treated_lnls_all = []
     treated_lnls_no_risk = []
+    cis = [[],[]]
     total_risks = np.zeros(len(combinations))
     sampled_risks_array = np.zeros((len(combinations),len(samples)))
     treated_ipsi_all = []
@@ -283,15 +291,15 @@ def analysis_treated_lnls_sampled(combinations, samples, model) :
         stage = pattern[0]
         midline_extension = pattern[1]
         counter_ipsi = 0
-        for lnl_ipsi, status in diagnose_looper['max_llh_diagnose']['ipsi'].items():
-            diagnose_looper['max_llh_diagnose']['ipsi'][lnl_ipsi] = pattern[2+counter_ipsi]
+        for lnl_ipsi, status in diagnose_looper['treatment_diagnose']['ipsi'].items():
+            diagnose_looper['treatment_diagnose']['ipsi'][lnl_ipsi] = pattern[2+counter_ipsi]
             counter_ipsi += 1
         counter_contra = 0
-        for lnl_contra, status in diagnose_looper['max_llh_diagnose']['contra'].items():
-            diagnose_looper['max_llh_diagnose']['contra'][lnl_contra] = pattern[8+counter_contra]
+        for lnl_contra, status in diagnose_looper['treatment_diagnose']['contra'].items():
+            diagnose_looper['treatment_diagnose']['contra'][lnl_contra] = pattern[8+counter_contra]
             counter_contra += 1
         sampled_risks, mean_risk = risk_sampled(samples = samples, model = model, t_stage = stage, given_diagnoses=diagnose_looper,midline_extension=midline_extension)  
-        spared_lnls, total_risk, ranked_combined, treated_lnls, treated_array, treated_ipsi, treated_contra, sampled_total_risks = levels_to_spare_ci(0.10, model, mean_risk, sampled_risks)
+        spared_lnls, total_risk, ranked_combined, treated_lnls, treated_array, treated_ipsi, treated_contra, sampled_total_risks = levels_to_spare(threshold, model, mean_risk, sampled_risks, ci = True)
         for i in treated_lnls:
             treated_looper.add(i[0])
         treated_lnls_all.append(treated_lnls)
@@ -300,9 +308,14 @@ def analysis_treated_lnls_sampled(combinations, samples, model) :
         total_risks[index] = total_risk
         sampled_risks_array[index] = sampled_total_risks
         top3_spared.append(spared_lnls[::-1][:3])
+        lnls_ranked.append(ranked_combined)  
         treated_ipsi_all.append(treated_ipsi)
         treated_contra_all.append(treated_contra)
-    return treated_lnls_no_risk, treated_lnls_all, treatment_array, top3_spared, total_risks, treated_ipsi_all, treated_contra_all, sampled_risks_array
+        ci = ci_single(sampled_total_risks)
+        cis[0].append(ci[0])
+        cis[1].append(ci[1])
+        
+    return treated_lnls_no_risk, treated_lnls_all, treatment_array, top3_spared, total_risks, treated_ipsi_all, treated_contra_all, sampled_risks_array, lnls_ranked, cis
 
 
 def count_number_treatments(treated_lnls_no_risk):
