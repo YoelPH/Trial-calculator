@@ -1,5 +1,5 @@
 import numpy as np
-
+import lymph
 
 def sample_from_flattened(flattened_samples, num_samples=100, spaced=False, step_size = None):
     """
@@ -24,7 +24,7 @@ def sample_from_flattened(flattened_samples, num_samples=100, spaced=False, step
         return flattened_samples[indices]
 
 
-def risk_sampled(samples, model, t_stage, midline_extension, given_diagnoses = None):
+def risk_sampled(samples, model, t_stage, midline_extension = None, given_diagnoses = None):
     """
     Compute sampled risks and their mean for a given model and parameters.
     Note: The samples should already be thinned. use `sample_from_flattened` to thin the samples.
@@ -43,7 +43,7 @@ def risk_sampled(samples, model, t_stage, midline_extension, given_diagnoses = N
     """
     sampled_risks = np.zeros(shape=(len(samples), model.risk().shape[0], model.risk().shape[1]), dtype=float)
     for i, sample in enumerate(samples):
-        sampled_risks[i] = model.risk(given_params = sample, t_stage = t_stage, given_diagnoses = given_diagnoses,midline_extension=midline_extension) 
+        sampled_risks[i] = model.risk(given_params = sample, t_stage = t_stage, given_diagnoses = given_diagnoses, midline_extension=midline_extension) 
     mean_risk = sampled_risks.mean(axis = 0)
     return sampled_risks, mean_risk
 
@@ -149,8 +149,14 @@ def levels_to_spare(threshold, model, mean_risks, sampled_risks, ci=False):
     """
     if threshold <= 0:
         raise ValueError("Threshold must be larger than zero")
-    state_list = model.noext.ipsi.state_list
-    lnls = [lnl.name for lnl in model.noext.ipsi.lnls]
+    if isinstance(model, lymph.MidlineBilateral):
+        state_list = model.noext.ipsi.state_list
+        lnls = [lnl.name for lnl in model.noext.ipsi.lnls]
+    elif isinstance(model, lymph.Bilateral):  
+        state_list = model.ipsi.state_list
+        lnls = [lnl.name for lnl in model.ipsi.lnls]
+    else:
+        raise TypeError("Model must be an instance of lymph.MidlineBilateral or lymph.Bilateral")
 
     ipsi_risks, contra_risks = get_risks_by_side(mean_risks, state_list, lnls)
     combined_risks = {f'ipsi {k}': v for k, v in ipsi_risks.items()}
@@ -254,6 +260,17 @@ def analysis_treated_lnls_combinations(combinations, samples, model, threshold =
         - The function modifies the `diagnose_looper` dictionary to update diagnostic
             statuses based on the input combinations.
     """
+    if threshold <= 0:
+        raise ValueError("Threshold must be larger than zero")
+    if isinstance(model, lymph.MidlineBilateral):
+        start_val = 2
+    elif isinstance(model, lymph.Bilateral):  
+        start_val = 1
+        midline_extension = None
+    else:
+        raise TypeError("Model must be an instance of lymph.MidlineBilateral or lymph.Bilateral")
+
+    
     treatment_array = np.zeros((len(combinations),12))
     top3_spared = []
     lnls_ranked =[]
@@ -289,14 +306,15 @@ def analysis_treated_lnls_combinations(combinations, samples, model, threshold =
     for index, pattern in enumerate(combinations):
         treated_looper = set()
         stage = pattern[0]
-        midline_extension = pattern[1]
+        if isinstance(model, lymph.MidlineBilateral):
+            midline_extension = pattern[1]
         counter_ipsi = 0
         for lnl_ipsi, status in diagnose_looper['treatment_diagnose']['ipsi'].items():
-            diagnose_looper['treatment_diagnose']['ipsi'][lnl_ipsi] = pattern[2+counter_ipsi]
+            diagnose_looper['treatment_diagnose']['ipsi'][lnl_ipsi] = pattern[start_val + counter_ipsi]
             counter_ipsi += 1
         counter_contra = 0
         for lnl_contra, status in diagnose_looper['treatment_diagnose']['contra'].items():
-            diagnose_looper['treatment_diagnose']['contra'][lnl_contra] = pattern[8+counter_contra]
+            diagnose_looper['treatment_diagnose']['contra'][lnl_contra] = pattern[start_val + 6 + counter_contra]
             counter_contra += 1
         sampled_risks, mean_risk = risk_sampled(samples = samples, model = model, t_stage = stage, given_diagnoses=diagnose_looper,midline_extension=midline_extension)  
         spared_lnls, total_risk, ranked_combined, treated_lnls, treated_array, treated_ipsi, treated_contra, sampled_total_risks = levels_to_spare(threshold, model, mean_risk, sampled_risks, ci = True)
