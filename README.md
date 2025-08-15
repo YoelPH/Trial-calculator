@@ -9,19 +9,8 @@ You can install the required version of the `lymph` repository using one of the 
 
 1. Install directly from the GitHub repository:
     ```bash
-    pip install git+https://github.com/rmnldwg/lymph.git@0.4.3
+    pip install git+https://github.com/rmnldwg/lymph.git@1.0.0.clin-trial
     ```
-
-2. Install the specific version from PyPI:
-    ```bash
-    pip install lymph-model==0.4.3
-    ```
-
-3. Install all dependencies from the `requirements.txt` file:
-    ```bash
-    pip install -r requirements.txt
-    ```
-
 Ensure that the correct version is installed before proceeding with the trial.
 
 # Additional Information
@@ -30,11 +19,9 @@ Ensure that the correct version is installed before proceeding with the trial.
 
 This repository contains two Jupyter Notebooks that are integral to the DeEsco trial analysis:
 
-1. **risk_evalutor_trial.ipynb**: This notebook focuses on trial-specific risk evaluation, including model setup, classical analysis, and combination analysis. It also generates risk tables and full treatment tables for the trial. Note that to get the exact original results, you need to take 203 samples which are spaced by 89.
+1. **risk_evalutor_trial.ipynb**: This notebook focuses on trial-specific risk evaluation, including model setup, classical analysis, and combination analysis. It also generates risk tables and full treatment tables for the trial. Note that to get the exact original results, you need to take 216.
 
-2. **risk_evalutor_central.ipynb**: This notebook is centered on central risk evaluation. It includes similar analyses as the trial notebook but is tailored for central data processing and evaluation.
 
-Both notebooks are structured with markdown and Python cells, ensuring clarity and reproducibility of the analysis.
 
 ## Usage Instructions
 

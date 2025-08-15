@@ -118,7 +118,7 @@ def risk_sampled(samples, model, t_stage, midline_extension=None, given_diagnose
         'IVtoV_spread': sample[16],
         'late_p': sample[17]}
         model.set_params(**params)
-        sampled_risks[i] = model.risk(t_stage = t_stage, given_diagnoses = given_diagnoses, midline_extension = midline_extension, central = False) 
+        sampled_risks[i] = model.risk(t_stage = t_stage, given_diagnoses = given_diagnoses, midline_extension = midline_extension, central = central) 
     mean_risk = sampled_risks.mean(axis = 0)
     return sampled_risks, mean_risk
 
@@ -451,7 +451,8 @@ def analysis_treated_lnls_combinations_old(combinations, samples, model, thresho
     return treated_lnls_no_risk, treated_lnls_all, treatment_array, top3_spared, total_risks, treated_ipsi_all, treated_contra_all, sampled_risks_array
 
 
-def analysis_treated_lnls_combinations(combinations, samples, model, threshold = 0.10, ci = True):
+def analysis_treated_lnls_combinations(combinations, samples, model, threshold = 0.10, central = False, ci = True):
+    pattern_index = 1 if central else 2
     treatment_array = np.zeros((len(combinations),12))
     top3_spared = []
     lnls_ranked =[]
@@ -484,13 +485,13 @@ def analysis_treated_lnls_combinations(combinations, samples, model, threshold =
         midline_extension = pattern[1]
         counter_ipsi = 0
         for lnl_ipsi, status in diagnose_looper['ipsi']['treatment_diagnose'].items():
-            diagnose_looper['ipsi']['treatment_diagnose'][lnl_ipsi] = pattern[2+counter_ipsi]
+            diagnose_looper['ipsi']['treatment_diagnose'][lnl_ipsi] = pattern[pattern_index+counter_ipsi]
             counter_ipsi += 1
         counter_contra = 0
         for lnl_contra, status in diagnose_looper['contra']['treatment_diagnose'].items():
-            diagnose_looper['contra']['treatment_diagnose'][lnl_contra] = pattern[8+counter_contra]
+            diagnose_looper['contra']['treatment_diagnose'][lnl_contra] = pattern[pattern_index +6 +counter_contra]
             counter_contra += 1
-        sampled_risks, mean_risk = risk_sampled(samples = samples, model = model, t_stage = stage, given_diagnoses=diagnose_looper,midline_extension=midline_extension)     
+        sampled_risks, mean_risk = risk_sampled(samples = samples, model = model, t_stage = stage, given_diagnoses=diagnose_looper,midline_extension=midline_extension, central = central)     
         spared_lnls, total_risk, ranked_combined, treated_lnls, treated_array, treated_ipsi, treated_contra, sampled_total_risks =levels_to_spare(threshold, model, mean_risk, sampled_risks, ci = True)
         for i in treated_lnls:
             treated_looper.add(i[0])
@@ -507,6 +508,58 @@ def analysis_treated_lnls_combinations(combinations, samples, model, threshold =
         cis[0].append(ci[0])
         cis[1].append(ci[1])
     return treated_lnls_no_risk, treated_lnls_all, treatment_array, top3_spared, total_risks, treated_ipsi_all, treated_contra_all, sampled_risks_array, lnls_ranked, cis
+
+
+def analysis_treated_lnls_combinations_central_old(combinations,model, samples) :
+    treatment_array = np.zeros((len(combinations),12))
+    top3_spared = []
+    diagnose_looper = {"ipsi": {'treatment_diagnose':{
+        "I": 0,
+        "II": 0,
+        "III": 0,
+        "IV": 0,
+        "V": 0,
+        "VII": 0
+    }},
+    "contra": {'treatment_diagnose':{
+        "I": 0,
+        "II": 0,
+        "III": 0,
+        "IV": 0,
+        "V": 0,
+        "VII": 0
+    }}}
+    treated_lnls_all = []
+    treated_lnls_no_risk = []
+    total_risks = np.zeros(len(combinations))
+    sampled_risks_array = np.zeros((len(combinations),216))
+    treated_ipsi_all = []
+    treated_contra_all = []
+    for index, pattern in enumerate(combinations):
+        treated_looper = set()
+        stage = pattern[0]
+        counter_ipsi = 0
+        for lnl_ipsi, status in diagnose_looper['ipsi']['max_llh_diagnose'].items():
+            diagnose_looper['ipsi']['max_llh_diagnose'][lnl_ipsi] = pattern[1+counter_ipsi]
+            counter_ipsi += 1
+        counter_contra = 0
+        for lnl_contra, status in diagnose_looper['contra']['max_llh_diagnose'].items():
+            diagnose_looper['contra']['max_llh_diagnose'][lnl_contra] = pattern[7+counter_contra]
+            counter_contra += 1
+        sampled_risks, mean_risk = risk_sampled(samples = samples, model = model, t_stage = stage, given_diagnoses=diagnose_looper,central = True)     
+        spared_lnls, total_risk, ranked_combined, treated_lnls, treated_array, treated_ipsi, treated_contra, sampled_total_risks =levels_to_spare_old(0.10, model, mean_risk, sampled_risks)
+        for i in treated_lnls:
+            treated_looper.add(i[0])
+        treated_lnls_all.append(treated_lnls)
+        treated_lnls_no_risk.append(treated_looper)
+        treatment_array[index] = treated_array
+        total_risks[index] = total_risk
+        sampled_risks_array[index] = sampled_total_risks
+        top3_spared.append(spared_lnls[::-1][:3])
+        treated_ipsi_all.append(treated_ipsi)
+        treated_contra_all.append(treated_contra)
+    return treated_lnls_no_risk, treated_lnls_all, treatment_array, top3_spared, total_risks, treated_ipsi_all, treated_contra_all, sampled_risks_array
+
 
 
 def count_number_treatments(treated_lnls_no_risk):
