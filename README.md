@@ -15,12 +15,13 @@ Ensure that the correct version is installed before proceeding with the trial.
 
 # Additional Information
 
-## Notebooks Overview
+## Code Overview
 
-This repository contains two Jupyter Notebooks that are integral to the DeEsco trial analysis:
+This repository contains a Jupyter Notebook which contains all steps to produce and analyze the treatment tables used in the DeEscO trial:
 
-1. **risk_evalutor_trial.ipynb**: This notebook focuses on trial-specific risk evaluation, including model setup, classical analysis, and combination analysis. It also generates risk tables and full treatment tables for the trial. Note that to get the exact original results, you need to take 216.
+**midline_and_central_calculator.ipynb**: This notebook focuses on trial-specific risk evaluation, including model setup, classical analysis, and combination analysis. It also generates risk tables and full treatment tables for the trial. Note that to get the exact original results, you need to take 216 samples as done in the notebook.
 
+Additionally, all the needed scripts are in the **sparing_scripts.py** file. These scripts can also be used to infer treatment tables for other scenarios.
 
 
 ## Usage Instructions
