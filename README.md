@@ -1,7 +1,7 @@
 This repository will hold the files and functions to compute the guidelines of the DeEsco trial
 # DeEsco Trial Guidelines
 
-The guidelines for the DeEsco trial have been produced using version **0.4.3** of the `lymph` repository. To ensure reproducibility of the results, it is essential to install the correct version of the `lymph` repository.
+The guidelines for the DeEsco trial have been produced using version **1.0.0.clin-trial** of the `lymph` repository. To ensure reproducibility of the results, it is essential to install the correct version of the `lymph` repository.
 
 ## Installation Instructions
 
