@@ -9,7 +9,7 @@ You can install the required version of the `lymph` repository using one of the 
 
 1. Install directly from the GitHub repository:
     ```bash
-    pip install git+https://github.com/rmnldwg/lymph.git@1.0.0.clin-trial
+    pip install git+https://github.com/rmnldwg/lymph.git@1.0.0+clin.trial
     ```
 
 2. Install additional dependencies:
