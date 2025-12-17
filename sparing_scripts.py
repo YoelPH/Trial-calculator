@@ -3,15 +3,16 @@ import lymph
 
 def sample_from_flattened(flattened_samples, num_samples=100, spaced=False, step_size = None):
     """
-    Function to sample from a flattened set of MCMC samples.
+    Sample from flattened MCMC samples, either randomly or evenly spaced.
 
-    Parameters:
-    - flattened_samples (np.ndarray): The flattened MCMC samples (2D array, shape [num_samples, num_parameters]).
-    - num_samples (int): The number of samples to select (default is 100).
-    - spaced (bool): If True, select evenly spaced samples instead of random ones (default is False).
+    Args:
+        flattened_samples: Flattened MCMC samples (shape: [num_samples, num_parameters]).
+        num_samples: Number of samples to select (default: 100).
+        spaced: If True, select evenly spaced samples; if False, random (default: False).
+        step_size: Step size for spaced sampling (default: auto-calculated).
 
     Returns:
-    - np.ndarray: The selected samples.
+        Selected samples as numpy array.
     """
     if spaced:
         # Select evenly spaced samples
@@ -30,17 +31,17 @@ def change_base(
     reverse: bool = False,
     length = None
 ) -> str:
-    """Convert an integer into another base.
+    """
+    Convert integer to another base (2-16).
 
     Args:
-        number: Number to convert
-        base: Base of the resulting converted number
-        reverse: If true, the converted number will be printed in reverse order.
-        length: Length of the returned string. If longer than would be
-            necessary, the output will be padded.
+        number: Integer to convert (must be non-negative).
+        base: Target base (2-16).
+        reverse: If True, reverse digit order (default: False).
+        length: Minimum length, pads with zeros if needed (default: auto).
 
     Returns:
-        The (padded) string of the converted number.
+        String representation of converted number.
     """
     if number < 0:
         raise ValueError("Cannot convert negative numbers")
@@ -76,63 +77,41 @@ def change_base(
 
 def risk_sampled(samples, model, t_stage, midline_extension=None, given_diagnoses=None, central=False):
     """
-    Samples risk estimates from a model using provided parameter samples.
-
-    Iterates over a set of parameter samples, sets the model parameters for each sample,
-    and computes the risk for the given T stage and optional diagnosis information.
-    Returns both the array of sampled risks and their mean.
-    NOTE: The samples must have the correct parameter structure expected by the model.
-    In the future we will handle this differently.
+    Compute posterior state distribution for each parameter sample.
 
     Args:
-        samples (array-like): An iterable of parameter samples, where each sample is a sequence of parameter values.
-        model (lymph.models.Midline): A lymph model object with `set_params` and `risk` methods.
-        t_stage (str): The T stage input to be passed to the model's risk calculation (e.g., 'early', 'late').
-        midline_extension (bool, optional): Additional parameter for midline extension risk calculation, default is None.
-        given_diagnoses (dict, optional): Diagnosis information for risk calculation with ipsi/contra structure, default is None.
-        central (bool, optional): Whether to use central tumor calculation, default is False.
+        samples: Parameter samples, each matching model.get_params() structure.
+        model: Lymph model (Unilateral or Midline).
+        t_stage: T-stage ('early' or 'late').
+        midline_extension: Midline extension status (Midline models only).
+        given_diagnoses: Diagnosis dict with ipsi/contra structure.
+        central: Whether tumor is central (Midline models only).
 
     Returns:
-        tuple: 
-            - sampled_risks (numpy.ndarray): Array of risk values computed for each sample, shape (num_samples, number of LNLs**2, number of LNLs**2).
-            - mean_risk (numpy.ndarray): Mean of the sampled risks across all samples, shape (number of LNLs**2, number of LNLs**2).
+        tuple: (sampled_risks, mean_risk) - posterior state distributions per sample and their mean.
     """
-    sampled_risks = np.zeros((len(samples), *model.risk().shape), dtype=float)
+    sampled_risks = np.zeros((len(samples), *model.posterior_state_dist().shape), dtype=float)
     for i, sample in enumerate(samples):
-        params = {'mixing': sample[0],
-        'ipsi_primarytoI_spread': sample[1],
-        'ipsi_primarytoII_spread': sample[2],
-        'ipsi_primarytoIII_spread': sample[3],
-        'ipsi_primarytoIV_spread': sample[4],
-        'ipsi_primarytoV_spread': sample[5],
-        'ipsi_primarytoVII_spread': sample[6],
-        'contra_primarytoI_spread': sample[7],
-        'contra_primarytoII_spread': sample[8],
-        'contra_primarytoIII_spread': sample[9],
-        'contra_primarytoIV_spread': sample[10],   
-        'contra_primarytoV_spread': sample[11],
-        'contra_primarytoVII_spread': sample[12],
-        'ItoII_spread': sample[13],
-        'IItoIII_spread': sample[14],
-        'IIItoIV_spread': sample[15],
-        'IVtoV_spread': sample[16],
-        'late_p': sample[17]}
+        params = {key: sample[i] for i, key in enumerate(model.get_params().keys())}
         model.set_params(**params)
-        sampled_risks[i] = model.risk(t_stage = t_stage, given_diagnoses = given_diagnoses, midline_extension = midline_extension, central = central) 
+        if type(model) == lymph.models.unilateral.Unilateral:
+            sampled_risks[i] = model.posterior_state_dist(t_stage = t_stage, given_diagnosis = given_diagnoses) 
+        else:
+            sampled_risks[i] = model.posterior_state_dist(t_stage = t_stage, given_diagnosis = given_diagnoses, midline_extension = midline_extension, central = central) 
     mean_risk = sampled_risks.mean(axis = 0)
     return sampled_risks, mean_risk
 
 
 def ci_single(sampled_risks, level=0.95):
     """
-    Calculate the credibility interval for a given set of sampled risks.
+    Calculate credibility interval for sampled risks.
 
     Args:
-        sampled_risks (np.ndarray): Array of sampled risks.
-        level (float): credibility level (default is 0.95).
+        sampled_risks: Array of sampled risks.
+        level: Credibility level (default: 0.95).
 
     Returns:
-        np.ndarray: Lower and upper bounds of the credibility interval.
+        Array with [lower, upper] bounds.
     """
     lower = (1 - level) / 2 * 100
     upper = 100 - lower
@@ -142,14 +121,14 @@ def ci_single(sampled_risks, level=0.95):
 
 def ci_multiple(sampled_risks_set, level=0.95):
     """
-    Calculate the credibility intervals for a set of sampled risks.
+    Calculate credibility intervals for multiple risk sets.
 
     Args:
-        sampled_risks (np.ndarray): Array of sampled risks for multiple cases.
-        level (float): Credibility level (default is 0.95).
+        sampled_risks_set: Array of sampled risks for multiple cases.
+        level: Credibility level (default: 0.95).
 
     Returns:
-        np.ndarray: Array of lower and upper bounds for each set of sampled risks.
+        Array with shape (n_cases, 2) containing [lower, upper] bounds per case.
     """
     lower = (1 - level) / 2 * 100
     upper = 100 - lower
@@ -209,67 +188,24 @@ def get_state_indices(state_list, indices):
     return np.unique(combined)
 
 
-def levels_to_spare(threshold, model, mean_risks, sampled_risks, ci=False):
+def sparing_bilateral(threshold, model, mean_risks, sampled_risks, ci=False):
     """
-    Determine the levels of lymph nodes to spare based on a risk threshold.
+    Determine LNL sparing for bilateral/Midline models.
     
-    This function evaluates the risks associated with ipsilateral (ipsi) and 
-    contralateral (contra) lymph node levels (LNLs) and determines which levels 
-    can be spared while keeping the total risk below a specified threshold.
+    Internal function called by levels_to_spare for Midline models.
     
-    The algorithm works by:
-    1. Ranking all LNLs by individual risk (lowest to highest)
-    2. Iteratively excluding LNLs from treatment starting with lowest risk
-    3. Checking if total risk exceeds threshold (using mean risk or CI upper bound)
-    4. Stopping when threshold is exceeded and returning the previous configuration
-    
-    Parameters:
-    -----------
-    threshold : float
-        The maximum allowable total risk for sparing lymph node levels (e.g., 0.10 for 10%).
-    model : lymph.models.Midline
-        A lymph Midline model object containing the LNL structure and parameters.
-    mean_risks : numpy.ndarray
-        Array of mean risks associated with each state in the model, shape (num_states, num_states).
-    sampled_risks : numpy.ndarray
-        Array of sampled risks for uncertainty estimation, with shape 
-        (num_samples, num_states, num_states).
-    ci : bool, optional
-        If True, uses confidence interval upper bound for threshold comparison.
-        If False, uses mean risk for threshold comparison. Default is False.
+    Args:
+        threshold: Maximum risk threshold.
+        model: lymph.models.Midline instance.
+        mean_risks: Mean posterior state distribution.
+        sampled_risks: Sampled posterior state distributions.
+        ci: Use CI upper bound for threshold (default: False).
     
     Returns:
-    --------
-    spared_lnls : list of tuples
-        List of spared lymph node levels and their associated risks, sorted by risk.
-    total_risk : float
-        The total risk corresponding to the returned treatment decision.
-    ranked_combined : list of tuples
-        List of all lymph node levels and their associated risks, sorted by risk.
-    treated_lnls : list of tuples
-        List of treated lymph node levels and their associated risks.
-    treated_array : numpy.ndarray
-        Array indicating which LNLs are treated (0 for treated, 1 for spared).
-    treated_ipsi : list of str
-        Names of treated ipsilateral lymph node levels.
-    treated_contra : list of str
-        Names of treated contralateral lymph node levels.
-    sampled_total_risk : numpy.ndarray
-        Array of sampled total risks corresponding to the returned treatment decision.
-    
-    Notes:
-    ------
-    - The function dynamically determines LNL structure from the model
-    - Risk and treatment decision are consistent (unlike the deprecated old version)
-    - The function handles both CI-based and mean risk-based thresholding
+        tuple: (spared_lnls, total_risk, ranked_combined, treated_lnls, treated_array,
+                treated_ipsi, treated_contra, sampled_total_risk)
     """
-    if threshold <= 0:
-        raise ValueError("Threshold must be larger than zero")
-    if isinstance(model, lymph.models.Midline):
-        lnls = list(model.noext.ipsi.graph.lnls.keys())
-    else:
-        raise TypeError("Model must be an instance of lymph.models.Midline")
-
+    lnls = list(model.noext.ipsi.graph.lnls.keys())
     state_list = np.zeros((2**len(lnls), len(lnls)))
     for i in range(2**len(lnls)):
         state_list[i] = [
@@ -329,6 +265,12 @@ def levels_to_spare(threshold, model, mean_risks, sampled_risks, ci=False):
                 sampled_risks.transpose(0, 2, 1)[:, idx_contra][:, :, not_idx_ipsi].sum(axis=(1, 2))
             )
         looper += 1
+        if ci:
+            spared_lnls = ranked_combined[:looper - 2]
+            treated_lnls = ranked_combined[looper - 2:]
+        else:
+            spared_lnls = ranked_combined[:looper - 2]
+            treated_lnls = ranked_combined[looper - 2:]
 
     treated_ipsi = [name.split()[1] for name, _ in treated_lnls if name.startswith("ipsi")]
     treated_contra = [name.split()[1] for name, _ in treated_lnls if name.startswith("contra")]
@@ -344,43 +286,140 @@ def levels_to_spare(threshold, model, mean_risks, sampled_risks, ci=False):
         sampled_total_risk,
     )
     
-
-def analysis_treated_lnls_combinations(combinations, samples, model, threshold = 0.10, central = False, ci = True):
+def sparing_unilateral(threshold, model, mean_risks, sampled_risks, ci=False):
     """
-    Analyze treatment recommendations for multiple diagnostic combinations.
+    Determine LNL sparing for unilateral models.
     
-    This function processes a set of diagnostic combinations (T-stage, midline extension,
-    and LNL involvement patterns) and determines the optimal treatment strategy for each
-    using the levels_to_spare function.
+    Internal function called by levels_to_spare for Unilateral models.
     
     Args:
-        combinations (list): List of diagnostic combination tuples. Each tuple contains:
-            - T-stage (str): 'early' or 'late'
-            - Midline extension (bool): True/False (only for non-central tumors)
-            - LNL involvement pattern (bool): 12 boolean values for ipsi/contra LNL involvement
-        samples (array-like): MCMC parameter samples for uncertainty quantification.
-        model (lymph.models.Midline): Lymph model object.
-        threshold (float, optional): Risk threshold for treatment decisions. Default is 0.10 (10%).
-        central (bool, optional): Whether to analyze central tumors (affects combination indexing). Default is False.
-        ci (bool, optional): Whether to use confidence intervals for threshold decisions. Default is True.
+        threshold: Maximum risk threshold.
+        model: lymph.models.Unilateral instance.
+        mean_risks: Mean posterior state distribution.
+        sampled_risks: Sampled posterior state distributions.
+        ci: Use CI upper bound for threshold (default: False).
     
     Returns:
-        tuple: Contains the following arrays/lists for all combinations:
-            - treated_lnls_no_risk (list): List of sets containing treated LNL names (without risk values)
-            - treated_lnls_all (list): List of full treated LNL information with risk values
-            - treatment_array (numpy.ndarray): Binary array indicating treatment decisions (shape: num_combinations x 12)
-            - top3_spared (list): List of top 3 spared LNLs for each combination
-            - total_risks (numpy.ndarray): Array of total risks for each combination
-            - treated_ipsi_all (list): List of treated ipsilateral LNL names for each combination
-            - treated_contra_all (list): List of treated contralateral LNL names for each combination
-            - sampled_risks_array (numpy.ndarray): Array of sampled risks for each combination
-            - lnls_ranked (list): List of LNL rankings by risk for each combination
-            - cis (list): List of confidence intervals [lower_bounds, upper_bounds]
+        tuple: (spared_lnls, total_risk, ranked, treated_lnls, treated_lnls_names,
+                treated_array, sampled_total_risk)
+    """
+    lnls = list(model.graph.lnls.keys())
+    state_list = np.zeros((2**len(lnls), len(lnls)))
+    for i in range(2**len(lnls)):
+        state_list[i] = [
+            int(digit) for digit in change_base(i, 2, length=len(lnls))
+        ]
+        
+    state_list = np.zeros((2**len(lnls), len(lnls)))
+    for i in range(2**len(lnls)):
+        state_list[i] = [
+            int(digit) for digit in change_base(i, 2, length=len(lnls))
+        ]
+        
+    risks = {lnl: mean_risks[state_list[:, i] == 1].sum() for i, lnl in enumerate(lnls)}
+    ranked = sorted(risks.items(), key=lambda x: x[1])
+
+    looper = 1
+    treated_array = np.ones(len(ranked))
+    total_risk_new = 0
+    sampled_total_risks_new = np.zeros(sampled_risks.shape[0])
+    treated_array[:] = 1
+    idx_lnls_to_treat = []
+    spared_lnls = []
+    treated_lnls = ranked.copy()
+    while looper < len(lnls) + 2:
+        # define which LNLs are treated
+        if ci and (ci_single(sampled_total_risks_new)[1] >= threshold):
+            spared_lnls = ranked[:looper - 2]
+            treated_lnls = ranked[looper - 2:]
+            break
+        elif total_risk_new >= threshold:
+            spared_lnls = ranked[:looper - 2]
+            treated_lnls = ranked[looper - 2:]
+            break
+        total_risk = total_risk_new
+        sampled_total_risk = sampled_total_risks_new
+        treated_array[idx_lnls_to_treat] = 0
+        # exclude the next LNL from the target volume
+        lnls_of_interest = [name for name, _ in ranked[:looper]]
+        idx_lnls_to_treat = [lnls.index(name) for name in lnls_of_interest]
+        idx = get_state_indices(state_list, idx_lnls_to_treat)
+
+        # calculate risk of the spared LNLs
+
+        total_risk_new = mean_risks[idx].sum()
+           
+        sampled_total_risks_new = sampled_risks[:, idx].sum(axis = 1)
+        looper += 1
+        if ci:
+            spared_lnls = ranked[:looper - 2]
+            treated_lnls = ranked[looper - 2:]
+        else:
+            spared_lnls = ranked[:looper - 2]
+            treated_lnls = ranked[looper - 2:]
+
+        treated_lnls_names = [name for name, _ in treated_lnls]
+    return (
+        spared_lnls,
+        total_risk,
+        ranked,
+        treated_lnls,
+        treated_lnls_names,
+        treated_array,
+        sampled_total_risk,
+    )   
+
+
+def levels_to_spare(threshold, model, mean_risks, sampled_risks, ci=False):
+    """
+    Determine which LNLs can be spared while keeping total risk below threshold.
     
-    Notes:
-        - For central tumors, combinations exclude midline extension (13 elements vs 14)
-        - The function uses multiprocessing-friendly design for large combination sets
-        - All outputs are aligned by combination index for easy analysis
+    Ranks LNLs by risk and iteratively excludes lowest-risk LNLs from treatment
+    until total risk of untreated regions exceeds threshold.
+    
+    Args:
+        threshold: Maximum allowable total risk (e.g., 0.10 for 10%).
+        model: Lymph model (Unilateral or Midline).
+        mean_risks: Mean posterior state distribution.
+        sampled_risks: Sampled posterior state distributions for uncertainty.
+        ci: If True, use CI upper bound for threshold; if False, use mean (default: False).
+    
+    Returns:
+        tuple: (spared_lnls, total_risk, ranked_lnls, treated_lnls, treated_array, 
+                treated_ipsi*, treated_contra*, sampled_total_risk)
+        *Only for Midline models
+    """
+    if threshold <= 0:
+        raise ValueError("Threshold must be larger than zero")
+    if isinstance(model, lymph.models.Midline):
+        return sparing_bilateral(threshold, model, mean_risks, sampled_risks, ci)
+    elif isinstance(model, lymph.models.unilateral.Unilateral):
+        return sparing_unilateral(threshold, model, mean_risks, sampled_risks, ci)
+    else:
+        raise TypeError("Model must be an instance of lymph.models.Midline or lymph.models.unilateral.Unilateral")
+
+
+
+def analysis_treated_lnls_combinations_bilateral(combinations, samples, model, threshold = 0.10, central = False, ci = True):
+    """
+    Analyze treatment recommendations for multiple diagnostic combinations (bilateral/Midline models).
+    
+    Processes diagnostic combinations (T-stage, midline extension, LNL patterns) and determines
+    optimal treatment for each using levels_to_spare.
+    
+    Args:
+        combinations: List of tuples with (t_stage, midline_ext, *lnl_pattern).
+                     For central tumors: 13 elements (no midline_ext); otherwise 14.
+        samples: MCMC parameter samples.
+        model: lymph.models.Midline instance.
+        threshold: Risk threshold for treatment decisions (default: 0.10).
+        central: If True, tumor is central (default: False).
+        ci: If True, use CI for threshold comparison (default: True).
+    
+    Returns:
+        tuple: (treated_lnls_no_risk, treated_lnls_all, treatment_array, top3_spared,
+                total_risks, treated_ipsi_all, treated_contra_all, sampled_risks_array,
+                lnls_ranked, cis)
     """
     if isinstance(model, lymph.models.Midline):
         lnls = list(model.noext.ipsi.graph.lnls.keys())
@@ -390,22 +429,12 @@ def analysis_treated_lnls_combinations(combinations, samples, model, threshold =
     treatment_array = np.zeros((len(combinations),len(lnls)*2))
     top3_spared = []
     lnls_ranked =[]
-    diagnose_looper = {"ipsi": {'treatment_diagnose':{
-        "I": 0,
-        "II": 0,
-        "III": 0,
-        "IV": 0,
-        "V": 0,
-        "VII": 0
-    }},
-    "contra": {'treatment_diagnose':{
-        "I": 0,
-        "II": 0,
-        "III": 0,
-        "IV": 0,
-        "V": 0,
-        "VII": 0
-    }}}
+    lnls = list(model.noext.ipsi.graph.lnls.keys())
+    diagnose_looper = {"ipsi":{'treatment_diagnose':{}}, 
+                      "contra":{'treatment_diagnose':{}}}
+    for lnl in lnls:
+        diagnose_looper['ipsi']['treatment_diagnose'][lnl] = 0
+        diagnose_looper['contra']['treatment_diagnose'][lnl] = 0
     treated_lnls_all = []
     treated_lnls_no_risk = []
     cis = [[],[]]
@@ -444,23 +473,72 @@ def analysis_treated_lnls_combinations(combinations, samples, model, threshold =
     return treated_lnls_no_risk, treated_lnls_all, treatment_array, top3_spared, total_risks, treated_ipsi_all, treated_contra_all, sampled_risks_array, lnls_ranked, cis
 
 
+def analysis_treated_lnls_combinations_unilateral(combinations, samples, model, threshold = 0.10, ci = True):
+    """
+    Analyze treatment recommendations for multiple diagnostic combinations (unilateral models).
+    
+    Args:
+        combinations: List of tuples with (t_stage, *lnl_pattern).
+        samples: MCMC parameter samples.
+        model: lymph.models.Unilateral instance.
+        threshold: Risk threshold (default: 0.10).
+        ci: If True, use CI for threshold comparison (default: True).
+    
+    Returns:
+        tuple: (treated_lnls_no_risk, treated_lnls_all, treatment_array, top3_spared,
+                total_risks, sampled_risks_array, lnls_ranked, cis)
+    """
+    if isinstance(model, lymph.models.unilateral.Unilateral):
+        lnls = list(model.graph.lnls.keys())
+    else:
+        raise TypeError("Model must be an instance of lymph.models.unilateral.Unilateral")
+    pattern_index = 1
+    treatment_array = np.zeros((len(combinations),len(lnls)))
+    top3_spared = []
+    lnls_ranked =[]
+    lnls = list(model.graph.lnls.keys())
+    diagnose_looper = {'treatment_diagnose':{}}
+    for lnl in lnls:
+        diagnose_looper['treatment_diagnose'][lnl] = 0
+    treated_lnls_all = []
+    treated_lnls_no_risk = []
+    cis = [[],[]]
+    total_risks = np.zeros(len(combinations))
+    sampled_risks_array = np.zeros((len(combinations),len(samples)))
+    treated_all = []
+    for index, pattern in enumerate(combinations):
+        treated_looper = set()
+        stage = pattern[0]
+        counter = 0
+        for lnl, status in diagnose_looper['treatment_diagnose'].items():
+            diagnose_looper['treatment_diagnose'][lnl] = pattern[pattern_index+counter]
+            counter += 1
+        sampled_risks, mean_risk = risk_sampled(samples = samples, model = model, t_stage = stage, given_diagnoses=diagnose_looper)     
+        spared_lnls, total_risk, ranked_combined, treated_lnls, treated_lnls_names, treated_array, sampled_total_risks =levels_to_spare(threshold, model, mean_risk, sampled_risks, ci = True)
+        for i in treated_lnls:
+            treated_looper.add(i[0])
+        treated_lnls_all.append(treated_lnls)
+        treated_lnls_no_risk.append(treated_looper)
+        treatment_array[index] = treated_array
+        total_risks[index] = total_risk
+        sampled_risks_array[index] = sampled_total_risks
+        top3_spared.append(spared_lnls[::-1][:3])
+        lnls_ranked.append(ranked_combined)  
+        ci = ci_single(sampled_total_risks)
+        cis[0].append(ci[0])
+        cis[1].append(ci[1])
+    return treated_lnls_no_risk, treated_lnls_all, treatment_array, top3_spared, total_risks, sampled_risks_array, lnls_ranked, cis
+
+
 def count_number_treatments(treated_lnls_no_risk):
     """
-    Function to calculate how many unique treatments are present.
-    
-    This function takes a list of sets, converts each set to an immutable `frozenset`,
-    and counts how many times each unique frozenset appears in the list. The counts
-    are stored in a dictionary where the keys are the frozensets and the values are
-    their respective counts.
+    Count occurrences of unique treatment combinations.
 
     Args:
-        treated_lnls_no_risk (list of set): A list containing sets of treated lymph nodes
-                                            or other elements.
+        treated_lnls_no_risk: List of sets containing treated LNL names.
 
     Returns:
-        dict: A dictionary where the keys are frozensets representing unique sets from
-              the input list, and the values are integers representing the count of
-              occurrences for each unique frozenset.
+        dict: Frozensets (unique treatments) mapped to occurrence counts.
     """
     set_counts = {}
     # Iterate through the list and update the counts in the dictionary
