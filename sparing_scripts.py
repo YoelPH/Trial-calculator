@@ -329,7 +329,13 @@ def levels_to_spare(threshold, model, mean_risks, sampled_risks, ci=False):
                 sampled_risks.transpose(0, 2, 1)[:, idx_contra][:, :, not_idx_ipsi].sum(axis=(1, 2))
             )
         looper += 1
-
+        if ci:
+            spared_lnls = ranked_combined[:looper - 2]
+            treated_lnls = ranked_combined[looper - 2:]
+        else:
+            spared_lnls = ranked_combined[:looper - 2]
+            treated_lnls = ranked_combined[looper - 2:]
+            
     treated_ipsi = [name.split()[1] for name, _ in treated_lnls if name.startswith("ipsi")]
     treated_contra = [name.split()[1] for name, _ in treated_lnls if name.startswith("contra")]
 
