@@ -97,7 +97,7 @@ def risk_sampled(samples, model, t_stage, midline_extension=None, given_diagnose
         if type(model) == lymph.models.unilateral.Unilateral:
             sampled_risks[i] = model.posterior_state_dist(t_stage = t_stage, given_diagnosis = given_diagnoses) 
         else:
-            sampled_risks[i] = model.posterior_state_dist(t_stage = t_stage, given_diagnosis = given_diagnoses, midline_extension = midline_extension, central = central) 
+            sampled_risks[i] = model.posterior_state_dist(t_stage = t_stage, given_diagnosis = given_diagnoses, midext = midline_extension, central = central) 
     mean_risk = sampled_risks.mean(axis = 0)
     return sampled_risks, mean_risk
 
@@ -190,7 +190,7 @@ def get_state_indices(state_list, indices):
 
 def sparing_bilateral(threshold, model, mean_risks, sampled_risks, ci=False):
     """
-    Determine LNL sparing for bilateral/Midline models.
+    Determine LNL sparing for Midline models.
     
     Internal function called by levels_to_spare for Midline models.
     
@@ -239,7 +239,7 @@ def sparing_bilateral(threshold, model, mean_risks, sampled_risks, ci=False):
         total_risk = total_risk_new
         sampled_total_risk = sampled_total_risks_new
         treated_array[ipsi_idx] = 0
-        treated_array[list(np.array(contra_idx) + 6)] = 0
+        treated_array[list(np.array(contra_idx) + len(lnls))] = 0
         # exclude the next LNL from the target volume
         lnls_of_interest = [name for name, _ in ranked_combined[:looper]]
         ipsi_idx, contra_idx = get_lnl_indices(lnls_of_interest, lnls)
@@ -452,7 +452,7 @@ def analysis_treated_lnls_combinations_bilateral(combinations, samples, model, t
             counter_ipsi += 1
         counter_contra = 0
         for lnl_contra, status in diagnose_looper['contra']['treatment_diagnose'].items():
-            diagnose_looper['contra']['treatment_diagnose'][lnl_contra] = pattern[pattern_index +6 +counter_contra]
+            diagnose_looper['contra']['treatment_diagnose'][lnl_contra] = pattern[pattern_index +len(lnls) +counter_contra]
             counter_contra += 1
         sampled_risks, mean_risk = risk_sampled(samples = samples, model = model, t_stage = stage, given_diagnoses=diagnose_looper,midline_extension=midline_extension, central = central)     
         spared_lnls, total_risk, ranked_combined, treated_lnls, treated_array, treated_ipsi, treated_contra, sampled_total_risks =levels_to_spare(threshold, model, mean_risk, sampled_risks, ci = True)
